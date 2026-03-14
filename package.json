@@ -1,0 +1,13 @@
+{
+  "name": "pdf-word-highlighter",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "highlight": "node highlight-word.js"
+  },
+  "dependencies": {
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^4.10.38"
+  }
+}

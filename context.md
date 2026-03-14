@@ -1,0 +1,35 @@
+# Context
+
+- 2026-03-14: Created React app `specter/` with Vite.
+- 2026-03-14: Installed dependencies with Bun.
+- 2026-03-14: Simplified app UI and enforced theme:
+  - Font: Roboto Mono
+  - Colors: mercury white (`#f4f5f8`) and nordic grey (`#222326`)
+- 2026-03-14: Swapped theme usage:
+  - Background: nordic grey
+  - Text: mercury white
+- 2026-03-14: Updated exact palette values:
+  - mercury white: `#f4f5f8`
+  - nordic grey: `#222326`
+- 2026-03-14: Added `components/Button.jsx` and updated hero section:
+  - Centered large orange `Specter` title with slow-appear animation
+  - Subtitle: "AI assisted SOW reviewer with human in loop"
+  - Center button label: "Get Started"
+- 2026-03-14: Switched global font setup to Google Fonts Datatype:
+  - Added preconnect + stylesheet links in `specter/index.html`
+  - Applied `font-family: 'Datatype', monospace` with optical sizing and width variation
+- 2026-03-14: Updated typography scope:
+  - `Specter` title: Datatype, bold
+  - Other text: Poppins, normal (400)
+- 2026-03-14: Added upload validation workflow:
+  - Upload options for files or directory
+  - Only `.pdf` and `.docx` allowed
+  - Per-file 2MB max check with toast errors for each oversized file
+  - Success/error toasts and accepted-file list UI
+- 2026-03-14: Added PDF-viewer-like workspace:
+  - After upload, shows a center preview panel
+  - With multiple files, first PDF is selected by default and file list is shown in sidebar
+  - Clicking a file in sidebar switches the center view
+- 2026-03-14: Added static post-upload navbar:
+  - Navbar appears only after at least one file is uploaded
+  - Includes one button: `Scan`

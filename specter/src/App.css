@@ -1,0 +1,265 @@
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.25rem;
+  text-align: center;
+  padding: 1.5rem 1.5rem 2rem;
+  transition: padding 0.3s ease;
+}
+
+.app.viewer-mode {
+  padding: 0;
+  gap: 0;
+  justify-content: stretch;
+}
+
+.title {
+  margin: 0;
+  font-family: 'Datatype', monospace;
+  font-optical-sizing: auto;
+  font-weight: 700;
+  font-style: normal;
+  font-variation-settings: 'wdth' 100;
+  font-size: clamp(3rem, 10vw, 7rem);
+  color: var(--mercury-white);
+  opacity: 0;
+  animation: slow-appear 2.4s ease-out forwards;
+}
+
+.subtitle {
+  margin: 0;
+  font-size: clamp(0.95rem, 2vw, 1.2rem);
+  max-width: 40rem;
+}
+
+.primary-button {
+  margin-top: 0.5rem;
+  padding: 0.8rem 1.4rem;
+  border-radius: 10px;
+  border: 1px solid var(--mercury-white);
+  background: var(--nordic-grey);
+  color: var(--mercury-white);
+  font: inherit;
+  cursor: pointer;
+}
+
+.primary-button:hover {
+  opacity: 0.9;
+}
+
+.upload-actions {
+  position: relative;
+}
+
+.upload-options {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  left: 50%;
+  transform: translateX(-50%);
+  display: grid;
+  gap: 0.5rem;
+  min-width: 220px;
+  padding: 0.75rem;
+  border-radius: 12px;
+  border: 1px solid var(--mercury-white);
+  background: var(--nordic-grey);
+}
+
+.option-button {
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--mercury-white);
+  background: transparent;
+  color: var(--mercury-white);
+  font: inherit;
+  cursor: pointer;
+}
+
+.option-button:hover {
+  opacity: 0.9;
+}
+
+.hidden-input {
+  display: none;
+}
+
+.viewer-shell {
+  width: min(1100px, 100%);
+  min-height: 60vh;
+  border: 1px solid var(--mercury-white);
+  border-radius: 12px;
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.viewer-mode .viewer-shell {
+  width: 100%;
+  height: calc(100vh - 64px);
+  border: 0;
+  border-radius: 0;
+}
+
+.viewer-navbar {
+  width: 100%;
+  height: 64px;
+  border-bottom: 1px solid var(--mercury-white);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 1rem;
+  position: sticky;
+  top: 0;
+  background: var(--nordic-grey);
+  z-index: 10;
+}
+
+.scan-button {
+  margin-top: 0;
+}
+
+.viewer-shell.empty {
+  grid-template-columns: 1fr;
+}
+
+.file-sidebar {
+  border-right: 1px solid var(--mercury-white);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.file-sidebar-title {
+  margin: 0;
+  padding: 0.9rem;
+  text-align: left;
+  border-bottom: 1px solid var(--mercury-white);
+  font-size: 1rem;
+  font-weight: 400;
+}
+
+.accepted-files {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow: auto;
+  min-height: 0;
+  text-align: left;
+}
+
+.file-item {
+  width: 100%;
+  padding: 0.7rem 0.8rem;
+  border: 0;
+  border-bottom: 1px solid var(--mercury-white);
+  background: transparent;
+  color: var(--mercury-white);
+  font: inherit;
+  text-align: left;
+  display: grid;
+  grid-template-columns: 1.2rem 1fr;
+  gap: 0.55rem;
+  cursor: pointer;
+}
+
+.file-item.active {
+  background: rgba(244, 245, 248, 0.12);
+}
+
+.viewer-panel {
+  min-height: 60vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.8rem;
+}
+
+.viewer-mode .viewer-panel {
+  height: 100%;
+  padding: 0;
+}
+
+.pdf-frame {
+  width: 100%;
+  height: calc(60vh - 1rem);
+  border: 0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.viewer-mode .pdf-frame {
+  height: 100%;
+  border-radius: 0;
+}
+
+.empty-text,
+.non-pdf-message {
+  opacity: 0.95;
+}
+
+.non-pdf-message p,
+.empty-text {
+  margin: 0.2rem 0;
+}
+
+.toast-stack {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  display: grid;
+  gap: 0.5rem;
+  width: min(92vw, 420px);
+  z-index: 20;
+}
+
+.toast {
+  border-radius: 10px;
+  border: 1px solid var(--mercury-white);
+  background: var(--nordic-grey);
+  color: var(--mercury-white);
+  padding: 0.65rem 0.8rem;
+  text-align: left;
+}
+
+.toast.error {
+  border-color: #ff8a00;
+}
+
+.toast.success {
+  border-color: var(--mercury-white);
+}
+
+@media (max-width: 900px) {
+  .viewer-navbar {
+    padding: 0 0.8rem;
+  }
+
+  .viewer-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .file-sidebar {
+    border-right: 0;
+    border-bottom: 1px solid var(--mercury-white);
+  }
+
+  .pdf-frame {
+    height: 56vh;
+  }
+}
+
+@keyframes slow-appear {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
