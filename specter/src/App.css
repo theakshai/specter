@@ -99,7 +99,7 @@
 
 .viewer-mode .viewer-shell {
   width: 100%;
-  height: calc(100vh - 64px);
+  height: 100%;
   border: 0;
   border-radius: 0;
 }
@@ -120,6 +120,17 @@
 
 .scan-button {
   margin-top: 0;
+}
+
+.workspace {
+  width: 100%;
+  height: calc(100vh - 64px);
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+.workspace.scan-open {
+  grid-template-columns: 1fr 320px;
 }
 
 .viewer-shell.empty {
@@ -233,9 +244,92 @@
   border-color: var(--mercury-white);
 }
 
+.scan-chatbar {
+  border-left: 1px solid var(--mercury-white);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.scan-title {
+  margin: 0;
+  text-align: left;
+  padding: 1rem;
+  border-bottom: 1px solid var(--mercury-white);
+  font-size: 1rem;
+  font-weight: 400;
+}
+
+.scan-messages {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  align-content: start;
+  gap: 0.6rem;
+  padding: 1rem;
+}
+
+.scan-empty {
+  margin: 0;
+  text-align: left;
+  opacity: 0.85;
+}
+
+.scan-message {
+  margin: 0;
+  border: 1px solid var(--mercury-white);
+  border-radius: 8px;
+  padding: 0.55rem 0.65rem;
+  text-align: left;
+}
+
+.scan-message.user {
+  background: rgba(244, 245, 248, 0.12);
+}
+
+.scan-form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.5rem;
+  padding: 1rem;
+  border-top: 1px solid var(--mercury-white);
+}
+
+.scan-input,
+.scan-submit {
+  border-radius: 8px;
+  border: 1px solid var(--mercury-white);
+  background: var(--nordic-grey);
+  color: var(--mercury-white);
+  font: inherit;
+}
+
+.scan-input {
+  padding: 0.55rem 0.65rem;
+}
+
+.scan-submit {
+  padding: 0.55rem 0.75rem;
+  cursor: pointer;
+}
+
+.scan-submit:disabled,
+.scan-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 @media (max-width: 900px) {
   .viewer-navbar {
     padding: 0 0.8rem;
+  }
+
+  .workspace,
+  .workspace.scan-open {
+    height: auto;
+    min-height: calc(100vh - 64px);
+    grid-template-columns: 1fr;
   }
 
   .viewer-shell {
@@ -249,6 +343,12 @@
 
   .pdf-frame {
     height: 56vh;
+  }
+
+  .scan-chatbar {
+    min-height: 45vh;
+    border-left: 0;
+    border-top: 1px solid var(--mercury-white);
   }
 }
 

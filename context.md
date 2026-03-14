@@ -33,3 +33,10 @@
 - 2026-03-14: Added static post-upload navbar:
   - Navbar appears only after at least one file is uploaded
   - Includes one button: `Scan`
+- 2026-03-14: Added Scan chatbar + in-app PDF word highlighter:
+  - `Scan` toggles a right-side chatbar
+  - Entering a term (e.g. `gpu`) and pressing Enter runs highlight logic equivalent to `highlight-word.js`
+  - Selected PDF is updated in viewer with highlighted output
+- 2026-03-14: Added Safari-only scan fallback method:
+  - Safari uses `pdfjs-dist-v4` path for scan/highlight
+  - Other browsers continue using `pdfjs-dist` v5 method
