@@ -16,6 +16,10 @@ function App() {
   const [isRunning, setIsRunning] = useState(false)
   const [toasts, setToasts] = useState([])
   const fileInputRef = useRef(null)
+  const folderInputRef = useRef(null)
+
+  const MAX_FILES_PER_BATCH = 5
+  const MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024
 
   const files = useMemo(() => batch?.files || [], [batch?.files])
   const selectedFile = files.find((file) => file.file_id === selectedFileId) || files[0]
@@ -133,14 +137,66 @@ function App() {
     fileInputRef.current?.click()
   }
 
+  const onFolderUploadClick = () => {
+    folderInputRef.current?.click()
+  }
+
   const onUploadChange = async (event) => {
     if (!batch?.batch_id) return
 
-    const pickedFiles = Array.from(event.target.files || [])
+    let pickedFiles = Array.from(event.target.files || [])
     if (pickedFiles.length === 0) return
 
+    // Filter for PDFs and DOCXs
+    const originalCount = pickedFiles.length
+    const allowedExtensions = ['.pdf', '.docx']
+    pickedFiles = pickedFiles.filter((file) =>
+      allowedExtensions.some((ext) => file.name.toLowerCase().endsWith(ext)),
+    )
+    const validExtCount = pickedFiles.length
+
+    if (validExtCount === 0) {
+      if (originalCount > 0) {
+        addToast('⚠ No PDF or DOCX files found in selection.', 'error')
+      }
+      event.target.value = ''
+      return
+    }
+
+    // Check if we already have too many files
+    const currentFilesCount = files.length
+    if (currentFilesCount + validExtCount > MAX_FILES_PER_BATCH) {
+      addToast(
+        `⚠ Total files cannot exceed ${MAX_FILES_PER_BATCH}. You tried to add ${validExtCount}, but only ${
+          MAX_FILES_PER_BATCH - currentFilesCount
+        } more are allowed.`,
+        'error',
+      )
+      event.target.value = ''
+      return
+    }
+
+    // Check size for each file
+    const validFiles = []
+    const rejectedFiles = []
+
+    pickedFiles.forEach((file) => {
+      if (file.size > MAX_FILE_SIZE_BYTES) {
+        rejectedFiles.push({ name: file.name, reason: 'File is larger than 2MB.' })
+      } else {
+        validFiles.push(file)
+      }
+    })
+
+    rejectedFiles.forEach((item) => addToast(`⚠ ${item.name}: ${item.reason}`, 'error'))
+
+    if (validFiles.length === 0) {
+      event.target.value = ''
+      return
+    }
+
     const formData = new FormData()
-    pickedFiles.forEach((file) => formData.append('files', file))
+    validFiles.forEach((file) => formData.append('files', file))
 
     try {
       const response = await fetch(`${API_ROOT}/review-batches/${batch.batch_id}/files`, {
@@ -157,7 +213,9 @@ function App() {
         setSelectedFileId(payload.batch.files[0].file_id)
       }
 
-      payload.rejected.forEach((item) => addToast(`⚠ ${item.name}: ${item.reason}`, 'error'))
+      if (payload.rejected) {
+        payload.rejected.forEach((item) => addToast(`⚠ ${item.name}: ${item.reason}`, 'error'))
+      }
       addToast(`✔ Uploaded ${payload.accepted.length} file(s).`, 'success')
     } catch (error) {
       addToast(`✖ ${error.message}`, 'error')
@@ -169,7 +227,7 @@ function App() {
   const onRunReview = async () => {
     if (!batch?.batch_id) return
     if (files.length === 0) {
-      addToast('⚠ Upload 1-5 PDFs before running review.', 'error')
+      addToast('⚠ Upload 1-5 PDFs or DOCXs before running review.', 'error')
       return
     }
 
@@ -267,7 +325,10 @@ function App() {
         <section className="empty-start">
           <h1 className="title">Specter</h1>
           <p className="subtitle">AI assisted SOW reviewer with human in loop</p>
-          <Button label="Upload PDFs" onClick={onUploadClick} />
+          <div className="button-group">
+            <Button label="Upload Files" onClick={onUploadClick} />
+            <Button label="Upload Folder" onClick={onFolderUploadClick} />
+          </div>
         </section>
       )}
 
@@ -275,7 +336,16 @@ function App() {
         ref={fileInputRef}
         className="hidden-input"
         type="file"
-        accept=".pdf,application/pdf"
+        accept=".pdf,application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        multiple
+        onChange={onUploadChange}
+      />
+      <input
+        ref={folderInputRef}
+        className="hidden-input"
+        type="file"
+        webkitdirectory=""
+        directory=""
         multiple
         onChange={onUploadChange}
       />
@@ -298,10 +368,11 @@ function App() {
               <Button label="Save Rule" className="scan-button" onClick={onSaveTemplate} />
               <Button
                 label={isRunning || isBatchWorking ? 'Running...' : 'Run Review'}
-                className="scan-button"
+                className="scan-button primary"
                 onClick={onRunReview}
               />
               <Button label="Upload" className="scan-button" onClick={onUploadClick} />
+              <Button label="Upload Folder" className="scan-button" onClick={onFolderUploadClick} />
             </div>
           </nav>
 

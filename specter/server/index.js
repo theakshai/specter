@@ -448,8 +448,8 @@ app.post('/api/review-batches/:batchId/files', upload.array('files', MAX_FILES_P
 
   uploadedFiles.forEach((file) => {
     const extension = file.originalname.split('.').pop()?.toLowerCase() || ''
-    if (!['pdf'].includes(extension)) {
-      rejected.push({ name: file.originalname, reason: 'Only PDF files are allowed for review.' })
+    if (!['pdf', 'docx'].includes(extension)) {
+      rejected.push({ name: file.originalname, reason: 'Only PDF and DOCX files are allowed for review.' })
       fsPromises.rm(file.path, { force: true }).catch(() => {})
       return
     }
@@ -594,10 +594,15 @@ app.get('/api/files/:storageId/content', (req, res) => {
   fs.createReadStream(index.absolute_path).pipe(res)
 })
 
-app.use((error, _req, res) => {
-  if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
-    res.status(400).json({ error: 'File is greater than 2MB.' })
-    return
+app.use((error, _req, res, _next) => {
+  if (error instanceof multer.MulterError) {
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: `File is greater than ${MAX_FILE_SIZE_BYTES / (1024 * 1024)}MB.` })
+    }
+    if (error.code === 'LIMIT_FILE_COUNT') {
+      return res.status(400).json({ error: `Maximum ${MAX_FILES_PER_BATCH} files per batch.` })
+    }
+    return res.status(400).json({ error: error.message })
   }
   res.status(500).json({ error: error.message || 'Unexpected server error.' })
 })

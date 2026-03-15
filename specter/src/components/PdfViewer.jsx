@@ -47,6 +47,8 @@ function PdfViewer({ fileSource, findings, activeFindingId }) {
     return rendered
   }
 
+  const shouldRenderTextLayer = quoteFindings.length > 0
+
   return (
     <Document
       file={fileSource}
@@ -72,9 +74,9 @@ function PdfViewer({ fileSource, findings, activeFindingId }) {
             <Page
               key={`page-${pageNumber}`}
               pageNumber={pageNumber}
-              renderTextLayer
+              renderTextLayer={shouldRenderTextLayer}
               renderAnnotationLayer={false}
-              customTextRenderer={customTextRenderer}
+              customTextRenderer={shouldRenderTextLayer ? customTextRenderer : undefined}
               className="pdf-page"
               width={900}
             />

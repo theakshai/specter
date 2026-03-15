@@ -17,6 +17,13 @@
   place-items: center;
 }
 
+.button-group {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
 .title {
   margin: 0;
   font-family: 'Datatype', monospace;
@@ -200,14 +207,31 @@
   height: auto !important;
 }
 
+.pdf-page .react-pdf__Page__textContent {
+  mix-blend-mode: multiply;
+  pointer-events: none;
+  color: transparent;
+}
+
+.pdf-page .react-pdf__Page__textContent span {
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
 .pdf-mark {
   background: rgba(255, 138, 0, 0.45);
-  color: #111;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  mix-blend-mode: multiply;
   border-radius: 2px;
+  padding: 0 0.05em;
+  margin: 0 -0.02em;
+  box-shadow: 0 0 0 1px rgba(255, 138, 0, 0.35);
 }
 
 .pdf-mark.active {
   background: rgba(255, 138, 0, 0.78);
+  box-shadow: 0 0 0 1px rgba(255, 138, 0, 0.65);
 }
 
 .pdf-status {
