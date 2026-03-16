@@ -44,15 +44,15 @@ const db = {
 const queue = []
 let activeJob = null
 
-const seedTemplateId = randomUUID()
-db.ruleTemplates.set(seedTemplateId, {
-  id: seedTemplateId,
-  name: 'Default SOW Policy',
-  rule_text:
-    'Flag statements that have ambiguous obligations, missing ownership, missing acceptance criteria, uncapped liability language, or undefined payment milestones.',
-  created_at: new Date().toISOString(),
-  updated_at: new Date().toISOString(),
-})
+//const seedTemplateId = randomUUID()
+//db.ruleTemplates.set(seedTemplateId, {
+//  id: seedTemplateId,
+//  name: 'Default SOW Policy',
+//  rule_text:
+//    'Flag statements that have ambiguous obligations, missing ownership, missing acceptance criteria, uncapped liability language, or undefined payment milestones.',
+//  created_at: new Date().toISOString(),
+//  updated_at: new Date().toISOString(),
+//})
 
 const nowIso = () => new Date().toISOString()
 
@@ -317,13 +317,18 @@ const tryParseJson = (raw) => {
 
 const aiAnalyzeChunk = async ({ chunk, ruleText }) => {
   const ollamaUrl = process.env.OLLAMA_URL || 'http://localhost:11434/api/generate'
-  const model = process.env.OLLAMA_MODEL || 'qwen2.5-coder:1.5b'
+  const model = process.env.OLLAMA_MODEL || 'deepseek-r1:7b'
 
   const prompt = [
     'You are RAP reviewer, just catch one that are not obeying the rule',
     `RULE:\n${ruleText}`,
     `PAGES:\n${toChunkPrompt(chunk)}`,
   ].join('\n\n')
+
+  console.log('--- LLM REQUEST ---')
+  console.log(`Model: ${model}`)
+  console.log(`Prompt: ${prompt}`)
+  console.log('-------------------')
 
   const response = await fetch(ollamaUrl, {
     method: 'POST',
@@ -343,11 +348,20 @@ const aiAnalyzeChunk = async ({ chunk, ruleText }) => {
 
   if (!response.ok) {
     const errorText = await response.text()
+    console.error(`--- LLM ERROR ---`)
+    console.error(`Status: ${response.status}`)
+    console.error(`Body: ${errorText}`)
+    console.error(`-----------------`)
     throw new Error(`Ollama error: ${response.status} ${errorText}`)
   }
 
   const payload = await response.json()
   const content = payload?.response || ''
+
+  console.log('--- LLM RESPONSE ---')
+  console.log(content)
+  console.log('--------------------')
+
   const parsed = tryParseJson(content)
   if (!Array.isArray(parsed)) return []
   return parsed

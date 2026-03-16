@@ -1,0 +1,94 @@
+RAP Review Comments
+Scope Verified ❌
+
+The scope does not fully follow RAP rules.
+
+Issues identified:
+
+Open-ended scope statements
+
+The scope includes statements like:
+
+“Implement environmental changes and maintain ongoing best practices as requested by the customer designee.”
+
+“Configuration changes as requested and prioritized by the designated project owner.”
+These are open-ended requests and violate the RAP rule requiring clear scope boundaries with no open-ended language.
+
+Deliverables not clearly defined
+
+Deliverables are vaguely described as:
+
+“Provide documentation for configuration changes and runbooks as necessary.”
+
+The RAP rule requires explicit deliverables aligned to pricing model, which is missing.
+
+Out-of-scope section missing
+
+RAP requires explicit Out-of-Scope items, but the SOW only states that anything not listed is out of scope instead of listing them explicitly.
+
+Milestones or phases not defined
+
+The engagement is listed as “Modern Platforms Base Service” but no phases or milestones are defined even though this is a 12-month engagement.
+
+Timelines Verified ❌
+
+Timeline clarity issue
+
+The engagement duration is 12 months of DevOps engineering support, but no defined timeline for deliverables, phases, or outcomes exists.
+
+RAP requires confirming that scope is deliverable within the timeline, which is not verifiable here because tasks are open-ended.
+
+Skillset & Staffing Verified ⚠️
+
+Potential issue
+
+Only one DevOps Senior Engineer (India) is assigned for the entire engagement.
+
+Concerns relative to RAP rules:
+
+Scope includes:
+
+AWS infrastructure optimization
+
+DevOps pipeline planning
+
+Security remediation
+
+CI/CD planning
+
+Cloud configuration
+
+For a 12-month ongoing engagement, this may indicate:
+
+No architect oversight
+
+No backup staffing
+
+No phased staffing plan
+
+RAP rule requires verifying appropriate staffing and phase-based allocation, which is not defined.
+
+Margin Verified ⚠️
+
+Cannot be verified from SOW.
+
+Total contract: $137,280 for 12 months.
+
+India margin requirement: 55–60%.
+
+Since cost rate / SPW / margin details are not included, margin compliance cannot be validated.
+
+Key RAP Violations (Summary)
+
+1️⃣ Open-ended scope language
+2️⃣ No explicit deliverables
+3️⃣ No out-of-scope list
+4️⃣ No milestones or phase breakdown
+5️⃣ Timeline not tied to deliverables
+6️⃣ Staffing plan not validated for scope
+7️⃣ Margin cannot be verified
+
+✅ Most critical violation:
+Open-ended scope allowing unlimited customer requests, which is a major RAP review failure.
+
+If you want, I can also show you how a RAP reviewer would phrase the comments to return this SOW to the SA (the exact wording reviewers usually send). That will make your review look like a real internal RAP response.
