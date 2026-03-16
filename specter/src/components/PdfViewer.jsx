@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { startTransition, useEffect, useMemo, useRef, useState } from 'react'
 import { Document, Page, pdfjs } from 'react-pdf'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import 'react-pdf/dist/Page/AnnotationLayer.css'
@@ -8,9 +8,11 @@ pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
-function PdfViewer({ fileSource, findings, activeFindingId }) {
+function PdfViewer({ file, fileSource, findings, activeFindingId }) {
   const [numPages, setNumPages] = useState(0)
   const [loadError, setLoadError] = useState('')
+  const [docxHtml, setDocxHtml] = useState('')
+  const [docxError, setDocxError] = useState('')
   const pageRefs = useRef(new Map())
 
   const quoteFindings = useMemo(
@@ -32,10 +34,53 @@ function PdfViewer({ fileSource, findings, activeFindingId }) {
     pageElement?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }, [activeFinding])
 
-  const customTextRenderer = ({ str }) => {
+  const isDocxPreview = file?.preview_type === 'docx-html'
+
+  useEffect(() => {
+    if (!isDocxPreview || !fileSource?.url) return undefined
+    let ignore = false
+    startTransition(() => {
+      setDocxHtml('')
+      setDocxError('')
+    })
+
+    fetch(fileSource.url)
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error('Failed to load DOCX preview.')
+        }
+        return response.text()
+      })
+      .then((html) => {
+        if (!ignore) {
+          setDocxHtml(html)
+        }
+      })
+      .catch((error) => {
+        if (!ignore) {
+          setDocxError(error?.message || 'Failed to load DOCX preview.')
+        }
+      })
+
+    return () => {
+      ignore = true
+    }
+  }, [isDocxPreview, fileSource?.url])
+
+  const findingsByPage = useMemo(() => {
+    const map = new Map()
+    quoteFindings.forEach((finding) => {
+      const pageList = map.get(finding.page_number) || []
+      pageList.push(finding)
+      map.set(finding.page_number, pageList)
+    })
+    return map
+  }, [quoteFindings])
+
+  const buildTextRenderer = (pageFindings) => ({ str }) => {
     let rendered = str
 
-    quoteFindings.forEach((finding) => {
+    pageFindings.forEach((finding) => {
       const quote = finding.quote_text.trim()
       if (!quote) return
       const pattern = new RegExp(escapeRegExp(quote), 'gi')
@@ -47,11 +92,32 @@ function PdfViewer({ fileSource, findings, activeFindingId }) {
     return rendered
   }
 
-  const shouldRenderTextLayer = quoteFindings.length > 0
+  if (isDocxPreview) {
+    return (
+      <section className="docx-viewer">
+        {docxError ? (
+          <p className="pdf-status">{docxError}</p>
+        ) : docxHtml ? (
+          <iframe
+            title={file?.name || 'DOCX preview'}
+            className="docx-iframe"
+            sandbox=""
+            srcDoc={docxHtml}
+          />
+        ) : (
+          <p className="pdf-status">Rendering DOCX preview...</p>
+        )}
+      </section>
+    )
+  }
+
+  if (!fileSource?.url) {
+    return <p className="pdf-status">No preview available.</p>
+  }
 
   return (
     <Document
-      file={fileSource}
+      file={fileSource?.url || null}
       className="pdf-document"
       onLoadSuccess={({ numPages: loadedPages }) => {
         setNumPages(loadedPages)
@@ -63,6 +129,9 @@ function PdfViewer({ fileSource, findings, activeFindingId }) {
     >
       {Array.from({ length: numPages }, (_, index) => {
         const pageNumber = index + 1
+        const pageFindings = findingsByPage.get(pageNumber) || []
+        const hasMarks = pageFindings.length > 0
+
         return (
           <div
             key={`page-wrap-${pageNumber}`}
@@ -74,9 +143,9 @@ function PdfViewer({ fileSource, findings, activeFindingId }) {
             <Page
               key={`page-${pageNumber}`}
               pageNumber={pageNumber}
-              renderTextLayer={shouldRenderTextLayer}
+              renderTextLayer={hasMarks}
               renderAnnotationLayer={false}
-              customTextRenderer={shouldRenderTextLayer ? customTextRenderer : undefined}
+              customTextRenderer={hasMarks ? buildTextRenderer(pageFindings) : undefined}
               className="pdf-page"
               width={900}
             />

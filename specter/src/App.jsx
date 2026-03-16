@@ -317,7 +317,16 @@ function App() {
     }
   }
 
-  const viewerFileSource = selectedFile ? `${API_ROOT}/files/${selectedFile.storage_id}/content` : null
+  const viewerFileSource = useMemo(() => {
+    if (!selectedFile) return null
+    if (selectedFile.preview_type === 'docx-html') {
+      return {
+        type: 'docx-html',
+        url: `${API_ROOT}/files/${selectedFile.storage_id}/docx-preview`,
+      }
+    }
+    return { type: 'pdf', url: `${API_ROOT}/files/${selectedFile.storage_id}/content` }
+  }, [selectedFile])
 
   return (
     <main className={`app ${files.length > 0 ? 'viewer-mode' : ''}`}>
@@ -402,6 +411,7 @@ function App() {
               <div className="viewer-panel">
                 {selectedFile ? (
                   <PdfViewer
+                    file={selectedFile}
                     fileSource={viewerFileSource}
                     findings={selectedFindings}
                     activeFindingId={activeFindingId}

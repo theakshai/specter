@@ -207,6 +207,24 @@
   height: auto !important;
 }
 
+.docx-viewer {
+  width: 100%;
+  min-height: 720px;
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  background: #fff;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.docx-iframe {
+  width: 100%;
+  border: none;
+  min-height: 720px;
+  background: #fff;
+}
+
 .pdf-page .react-pdf__Page__textContent {
   mix-blend-mode: multiply;
   pointer-events: none;

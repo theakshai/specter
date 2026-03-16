@@ -5,16 +5,22 @@ import fsPromises from 'node:fs/promises'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import multer from 'multer'
+import mammoth from 'mammoth'
+import { PDFDocument, StandardFonts } from 'pdf-lib'
 
 const app = express()
 const PORT = process.env.PORT || 8787
 const STORAGE_ROOT = path.resolve(process.cwd(), '.runtime', 'uploads')
+const DOCX_HTML_ROOT = path.resolve(STORAGE_ROOT, 'docx-html')
 const MAX_FILES_PER_BATCH = 5
 const MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024
 const BATCH_TTL_MS = 24 * 60 * 60 * 1000
 const PAGE_CHUNK_SIZE = 3
 
-await fsPromises.mkdir(STORAGE_ROOT, { recursive: true })
+await Promise.all([
+  fsPromises.mkdir(STORAGE_ROOT, { recursive: true }),
+  fsPromises.mkdir(DOCX_HTML_ROOT, { recursive: true }),
+])
 
 app.use(cors())
 app.use(express.json({ limit: '1mb' }))
@@ -67,7 +73,10 @@ const toPublicFile = (file) => ({
   file_id: file.id,
   name: file.name,
   size: file.size,
-  extension: file.extension,
+  extension: file.original_extension || file.extension,
+  content_extension: file.extension,
+  preview_type: file.docx_html_path ? 'docx-html' : 'pdf',
+  converted_from_docx: file.original_extension === 'docx',
   status: file.status,
   total_findings: file.findings.length,
   error: file.error,
@@ -111,6 +120,165 @@ const parsePdfPages = async (absolutePath) => {
   }
 
   return pages
+}
+
+const DOCX_PAGE_LAYOUT = Object.freeze({
+  width: 612,
+  height: 792,
+  marginX: 54,
+  marginY: 64,
+  fontSize: 12,
+  lineHeight: 16,
+  maxCharsPerLine: 90,
+})
+
+const wrapDocxParagraph = (text) => {
+  const normalized = text.replace(/\s+/g, ' ').trim()
+  if (!normalized) return ['']
+
+  const words = normalized.split(' ')
+  const lines = []
+  let currentLine = ''
+
+  const flushCurrent = () => {
+    if (currentLine) {
+      lines.push(currentLine)
+      currentLine = ''
+    }
+  }
+
+  words.forEach((word) => {
+    if (!currentLine) {
+      currentLine = word
+      return
+    }
+
+    const candidate = `${currentLine} ${word}`
+    if (candidate.length > DOCX_PAGE_LAYOUT.maxCharsPerLine) {
+      flushCurrent()
+      if (word.length > DOCX_PAGE_LAYOUT.maxCharsPerLine) {
+        const chunkPattern = new RegExp(`.{1,${DOCX_PAGE_LAYOUT.maxCharsPerLine}}`, 'g')
+        const chunks = word.match(chunkPattern) || [word]
+        if (chunks.length > 1) {
+          chunks.slice(0, -1).forEach((chunk) => lines.push(chunk))
+          currentLine = chunks[chunks.length - 1]
+        } else {
+          currentLine = chunks[0]
+        }
+      } else {
+        currentLine = word
+      }
+    } else {
+      currentLine = candidate
+    }
+  })
+
+  flushCurrent()
+  return lines.length > 0 ? lines : ['']
+}
+
+const buildDocxHtmlDocument = (bodyContent) => `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body {
+        font-family: 'Times New Roman', Georgia, serif;
+        margin: 32px;
+        background: #f4f5f8;
+        color: #111;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 1rem 0;
+      }
+      td, th {
+        border: 1px solid #bbb;
+        padding: 0.4rem;
+        text-align: left;
+      }
+      h1, h2, h3, h4, h5, h6 {
+        margin-top: 1.2rem;
+      }
+      p {
+        margin: 0.4rem 0;
+      }
+    </style>
+  </head>
+  <body>
+    ${bodyContent}
+  </body>
+</html>`
+
+const convertDocxAssets = async ({ sourcePath, storageId }) => {
+  const [{ value: rawText = '' }, { value: htmlFragment = '' }] = await Promise.all([
+    mammoth.extractRawText({ path: sourcePath }),
+    mammoth.convertToHtml({ path: sourcePath }),
+  ])
+
+  const normalized = rawText.replace(/\r/g, '')
+  const paragraphs = normalized.length > 0 ? normalized.split('\n') : []
+
+  const pdfDoc = await PDFDocument.create()
+  const font = await pdfDoc.embedFont(StandardFonts.TimesRoman)
+  const pageSize = [DOCX_PAGE_LAYOUT.width, DOCX_PAGE_LAYOUT.height]
+  let page = pdfDoc.addPage(pageSize)
+  let cursorY = DOCX_PAGE_LAYOUT.height - DOCX_PAGE_LAYOUT.marginY
+
+  const ensureRoom = () => {
+    if (cursorY <= DOCX_PAGE_LAYOUT.marginY) {
+      page = pdfDoc.addPage(pageSize)
+      cursorY = DOCX_PAGE_LAYOUT.height - DOCX_PAGE_LAYOUT.marginY
+    }
+  }
+
+  const stepCursor = (amount) => {
+    cursorY -= amount
+    if (cursorY <= DOCX_PAGE_LAYOUT.marginY) {
+      page = pdfDoc.addPage(pageSize)
+      cursorY = DOCX_PAGE_LAYOUT.height - DOCX_PAGE_LAYOUT.marginY
+    }
+  }
+
+  const drawLine = (line) => {
+    ensureRoom()
+    page.drawText(line, {
+      x: DOCX_PAGE_LAYOUT.marginX,
+      y: cursorY,
+      size: DOCX_PAGE_LAYOUT.fontSize,
+      font,
+    })
+    stepCursor(DOCX_PAGE_LAYOUT.lineHeight)
+  }
+
+  if (paragraphs.length === 0 || normalized.trim().length === 0) {
+    drawLine('(empty DOCX)')
+  } else {
+    paragraphs.forEach((paragraph) => {
+      const trimmed = paragraph.trim()
+      if (!trimmed) {
+        stepCursor(DOCX_PAGE_LAYOUT.lineHeight)
+        return
+      }
+
+      wrapDocxParagraph(trimmed).forEach(drawLine)
+      stepCursor(DOCX_PAGE_LAYOUT.lineHeight * 0.5)
+    })
+  }
+
+  const pdfBytes = await pdfDoc.save()
+  const outputPath = path.join(
+    STORAGE_ROOT,
+    `${Date.now()}-${randomUUID()}-docx.pdf`,
+  )
+  await fsPromises.writeFile(outputPath, pdfBytes)
+
+  const htmlDocument = buildDocxHtmlDocument(htmlFragment || '<p>(empty)</p>')
+  const htmlPath = path.join(DOCX_HTML_ROOT, `${storageId}.html`)
+  await fsPromises.writeFile(htmlPath, htmlDocument, 'utf8')
+
+  return { pdfPath: outputPath, htmlPath }
 }
 
 const buildChunks = (pages) => {
@@ -399,11 +567,10 @@ setInterval(async () => {
 
     for (const file of batch.files) {
       db.fileIndex.delete(file.storage_id)
-      try {
-        await fsPromises.rm(file.absolute_path, { force: true })
-      } catch {
-        // ignore cleanup errors
-      }
+      await Promise.all([
+        fsPromises.rm(file.absolute_path, { force: true }).catch(() => {}),
+        file.docx_html_path ? fsPromises.rm(file.docx_html_path, { force: true }).catch(() => {}) : Promise.resolve(),
+      ])
     }
 
     db.batches.delete(batchId)
@@ -427,7 +594,7 @@ app.post('/api/review-batches', (_req, res) => {
   res.status(201).json(toPublicBatch(batch))
 })
 
-app.post('/api/review-batches/:batchId/files', upload.array('files', MAX_FILES_PER_BATCH), (req, res) => {
+app.post('/api/review-batches/:batchId/files', upload.array('files', MAX_FILES_PER_BATCH), async (req, res) => {
   const batch = getBatchOr404(req.params.batchId, res)
   if (!batch) return
 
@@ -446,12 +613,32 @@ app.post('/api/review-batches/:batchId/files', upload.array('files', MAX_FILES_P
   const rejected = []
   const accepted = []
 
-  uploadedFiles.forEach((file) => {
+  for (const file of uploadedFiles) {
     const extension = file.originalname.split('.').pop()?.toLowerCase() || ''
     if (!['pdf', 'docx'].includes(extension)) {
       rejected.push({ name: file.originalname, reason: 'Only PDF and DOCX files are allowed for review.' })
-      fsPromises.rm(file.path, { force: true }).catch(() => {})
-      return
+      await fsPromises.rm(file.path, { force: true }).catch(() => {})
+      continue
+    }
+
+    let absolutePath = file.path
+    let storedExtension = extension
+    let originalExtension = null
+    let docxHtmlPath = null
+
+    if (extension === 'docx') {
+      try {
+        const { pdfPath, htmlPath } = await convertDocxAssets({ sourcePath: file.path, storageId })
+        absolutePath = pdfPath
+        await fsPromises.rm(file.path, { force: true }).catch(() => {})
+        storedExtension = 'pdf'
+        originalExtension = 'docx'
+        docxHtmlPath = htmlPath
+      } catch (error) {
+        rejected.push({ name: file.originalname, reason: `Failed to convert DOCX: ${error.message}` })
+        await fsPromises.rm(file.path, { force: true }).catch(() => {})
+        continue
+      }
     }
 
     const storageId = randomUUID()
@@ -460,8 +647,10 @@ app.post('/api/review-batches/:batchId/files', upload.array('files', MAX_FILES_P
       storage_id: storageId,
       name: file.originalname,
       size: file.size,
-      extension,
-      absolute_path: file.path,
+      extension: storedExtension,
+      original_extension: originalExtension,
+      absolute_path: absolutePath,
+      docx_html_path: docxHtmlPath,
       status: 'uploaded',
       findings: [],
       error: null,
@@ -469,9 +658,14 @@ app.post('/api/review-batches/:batchId/files', upload.array('files', MAX_FILES_P
       reviewed_at: null,
     }
     batch.files.push(entry)
-    db.fileIndex.set(storageId, { batch_id: batch.id, file_id: entry.id, absolute_path: file.path })
+    db.fileIndex.set(storageId, {
+      batch_id: batch.id,
+      file_id: entry.id,
+      absolute_path: absolutePath,
+      docx_html_path: docxHtmlPath || null,
+    })
     accepted.push(toPublicFile(entry))
-  })
+  }
 
   batch.updated_at = nowIso()
   res.status(201).json({ accepted, rejected, batch: toPublicBatch(batch) })
@@ -594,7 +788,19 @@ app.get('/api/files/:storageId/content', (req, res) => {
   fs.createReadStream(index.absolute_path).pipe(res)
 })
 
+app.get('/api/files/:storageId/docx-preview', (req, res) => {
+  const index = db.fileIndex.get(req.params.storageId)
+  if (!index || !index.docx_html_path) {
+    res.status(404).json({ error: 'DOCX preview not found.' })
+    return
+  }
+
+  res.setHeader('Content-Type', 'text/html; charset=utf-8')
+  fs.createReadStream(index.docx_html_path).pipe(res)
+})
+
 app.use((error, _req, res, _next) => {
+  void _next
   if (error instanceof multer.MulterError) {
     if (error.code === 'LIMIT_FILE_SIZE') {
       return res.status(400).json({ error: `File is greater than ${MAX_FILE_SIZE_BYTES / (1024 * 1024)}MB.` })
