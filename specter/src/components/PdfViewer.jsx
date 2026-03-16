@@ -143,9 +143,9 @@ function PdfViewer({ file, fileSource, findings, activeFindingId }) {
             <Page
               key={`page-${pageNumber}`}
               pageNumber={pageNumber}
-              renderTextLayer={hasMarks}
+              renderTextLayer={false}
               renderAnnotationLayer={false}
-              customTextRenderer={hasMarks ? buildTextRenderer(pageFindings) : undefined}
+              customTextRenderer={undefined}
               className="pdf-page"
               width={900}
             />
