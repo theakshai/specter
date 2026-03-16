@@ -8,14 +8,16 @@ import multer from 'multer'
 import mammoth from 'mammoth'
 import { PDFDocument, StandardFonts } from 'pdf-lib'
 
+import { fileURLToPath } from 'node:url'
+
 const app = express()
 const PORT = process.env.PORT || 8787
-const STORAGE_ROOT = path.resolve(process.cwd(), '.runtime', 'uploads')
-const DOCX_HTML_ROOT = path.resolve(STORAGE_ROOT, 'docx-html')
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const STORAGE_ROOT = path.resolve(__dirname, '..', '.runtime', 'uploads')
+const DOCX_HTML_ROOT = path.resolve(__dirname, '..', '.runtime', 'docx-html')
 const MAX_FILES_PER_BATCH = 5
 const MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024
 const BATCH_TTL_MS = 24 * 60 * 60 * 1000
-const PAGE_CHUNK_SIZE = 3
 
 await Promise.all([
   fsPromises.mkdir(STORAGE_ROOT, { recursive: true }),
@@ -23,7 +25,7 @@ await Promise.all([
 ])
 
 app.use(cors())
-app.use(express.json({ limit: '1mb' }))
+app.use(express.json({ limit: '10mb' }))
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, STORAGE_ROOT),
@@ -37,37 +39,24 @@ const upload = multer({
 
 const db = {
   batches: new Map(),
-  ruleTemplates: new Map(),
   fileIndex: new Map(),
 }
 
 const queue = []
 let activeJob = null
 
-const seedTemplateId = randomUUID()
-db.ruleTemplates.set(seedTemplateId, {
-  id: seedTemplateId,
-  name: 'Default SOW Policy',
-  rule_text:
-    'Flag statements that have ambiguous obligations, missing ownership, missing acceptance criteria, uncapped liability language, or undefined payment milestones.',
-  created_at: new Date().toISOString(),
-  updated_at: new Date().toISOString(),
-})
-
 const nowIso = () => new Date().toISOString()
-
 const normalize = (value) => value.trim().toLowerCase()
 
 const getBatchOr404 = (batchId, res) => {
+  console.log(`[Batch Lookup] Searching for ID: "${batchId}" (Existing IDs: ${[...db.batches.keys()].join(', ')})`)
   const batch = db.batches.get(batchId)
   if (!batch) {
-    res.status(404).json({ error: 'Batch not found.' })
+    res.status(404).json({ error: 'Batch not found. Please refresh your browser.' })
     return null
   }
   return batch
 }
-
-const getDefaultRuleText = () => [...db.ruleTemplates.values()][0]?.rule_text || ''
 
 const toPublicFile = (file) => ({
   file_id: file.id,
@@ -281,25 +270,6 @@ const convertDocxAssets = async ({ sourcePath, storageId }) => {
   return { pdfPath: outputPath, htmlPath }
 }
 
-const buildChunks = (pages) => {
-  const chunks = []
-  for (let index = 0; index < pages.length; index += PAGE_CHUNK_SIZE) {
-    const slice = pages.slice(index, index + PAGE_CHUNK_SIZE)
-    chunks.push({
-      chunk_id: `chunk-${index / PAGE_CHUNK_SIZE + 1}`,
-      start_page: slice[0].page_number,
-      end_page: slice[slice.length - 1].page_number,
-      pages: slice,
-    })
-  }
-  return chunks
-}
-
-const toChunkPrompt = (chunk) =>
-  chunk.pages
-    .map((page) => `Page ${page.page_number}\n${page.lines.join('\n')}`)
-    .join('\n\n')
-
 const tryParseJson = (raw) => {
   if (!raw) return null
   try {
@@ -315,79 +285,49 @@ const tryParseJson = (raw) => {
   }
 }
 
-const aiAnalyzeChunk = async ({ chunk, ruleText }) => {
-  const ollamaUrl = process.env.OLLAMA_URL || 'http://localhost:11434/api/generate'
+const aiAnalyzeDocument = async ({ fullText, ruleText }) => {
+  const ollamaUrl = process.env.OLLAMA_URL || 'http://127.0.0.1:11434/api/chat'
   const model = process.env.OLLAMA_MODEL || 'qwen2.5-coder:1.5b'
 
-  const prompt = [
-    'You are RAP reviewer, just catch one that are not obeying the rule',
+  console.log(`Analyzing document with ${fullText.length} chars of text and ${ruleText.length} chars of rules.`)
+
+  const content = [
+    'You are a senior compliance reviewer. Reason through the provided document text and identify if it follows the given RULE.',
+    'For any violations or points of interest, provide a JSON array of findings.',
+    'Each item schema: {page_number:number, quote_text:string, reason:string, severity:"low"|"medium"|"high"}.',
+    'Return ONLY the JSON array.',
     `RULE:\n${ruleText}`,
-    `PAGES:\n${toChunkPrompt(chunk)}`,
+    `DOCUMENT TEXT:\n${fullText}`,
   ].join('\n\n')
 
-  const response = await fetch(ollamaUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model,
-      prompt,
-      format: 'json',
-      stream: false,
-      options: {
-        temperature: 0,
-      },
-    }),
-  })
+  try {
+    const response = await fetch(ollamaUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content }],
+        format: 'json',
+        stream: false,
+        options: { temperature: 0 },
+      }),
+    })
 
-  if (!response.ok) {
-    const errorText = await response.text()
-    throw new Error(`Ollama error: ${response.status} ${errorText}`)
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('Ollama error response:', errorText)
+      throw new Error(`Ollama API error (${response.status}): ${errorText}`)
+    }
+
+    const payload = await response.json()
+    const responseContent = payload?.message?.content || ''
+    console.log(`AI response received (${responseContent.length} chars).`)
+    const parsed = tryParseJson(responseContent)
+    return Array.isArray(parsed) ? parsed : []
+  } catch (err) {
+    console.error('aiAnalyzeDocument failed:', err)
+    throw err
   }
-
-  const payload = await response.json()
-  const content = payload?.response || ''
-  const parsed = tryParseJson(content)
-  if (!Array.isArray(parsed)) return []
-  return parsed
-}
-
-const validateFinding = (finding) =>
-  finding &&
-  Number.isInteger(finding.page_number) &&
-  typeof finding.quote_text === 'string' &&
-  finding.quote_text.trim() &&
-  typeof finding.reason === 'string' &&
-  finding.reason.trim()
-
-const enrichFinding = (finding, fileId, chunk) => ({
-  finding_id: randomUUID(),
-  file_id: fileId,
-  page_number: finding.page_number,
-  quote_text: finding.quote_text.trim(),
-  reason: finding.reason.trim(),
-  severity: ['low', 'medium', 'high'].includes(finding.severity) ? finding.severity : 'medium',
-  confidence:
-    typeof finding.confidence === 'number' && finding.confidence >= 0 && finding.confidence <= 1
-      ? finding.confidence
-      : 0.5,
-  rule_clause_ref: finding.rule_clause_ref || 'general',
-  bbox: [],
-  status: 'open',
-  chunk_id: chunk.chunk_id,
-  start_page: chunk.start_page,
-  end_page: chunk.end_page,
-})
-
-const dedupeFindings = (findings) => {
-  const seen = new Set()
-  return findings.filter((finding) => {
-    const key = `${normalize(finding.quote_text)}|${finding.page_number}|${normalize(finding.rule_clause_ref || 'general')}`
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
 }
 
 const processJob = async (job) => {
@@ -403,34 +343,36 @@ const processJob = async (job) => {
 
   try {
     const pages = await parsePdfPages(file.absolute_path)
-    const chunks = buildChunks(pages)
-    const allFindings = []
+    const fullText = pages
+      .map((p) => `[Page ${p.page_number}]\n${p.lines.join('\n')}`)
+      .join('\n\n')
 
-    for (const chunk of chunks) {
-      const chunkFindings = await aiAnalyzeChunk({ chunk, ruleText: job.rule_text })
-      
-      if (!Array.isArray(chunkFindings)) {
-        throw new Error('AI analysis failed.')
-      }
+    const rawFindings = await aiAnalyzeDocument({ fullText, ruleText: job.rule_text })
 
-      chunkFindings
-        .filter(validateFinding)
-        .map((finding) => enrichFinding(finding, file.id, chunk))
-        .forEach((finding) => allFindings.push(finding))
-    }
+    file.findings = rawFindings.map(f => ({
+      finding_id: randomUUID(),
+      file_id: file.id,
+      page_number: f.page_number || 1,
+      quote_text: f.quote_text || 'N/A',
+      reason: f.reason || 'No reason provided',
+      severity: f.severity || 'medium',
+      status: 'open',
+    }))
 
-    file.findings = dedupeFindings(allFindings)
     file.status = 'ready'
     file.reviewed_at = nowIso()
     batch.updated_at = nowIso()
 
     const statuses = batch.files.map((entry) => entry.status)
-    if (statuses.every((value) => value === 'ready' || value === 'failed')) {
-      batch.status = statuses.some((value) => value === 'failed') ? 'partial' : 'ready'
+    if (statuses.every((v) => v === 'ready' || v === 'failed')) {
+      batch.status = statuses.some((v) => v === 'failed') ? 'partial' : 'ready'
     }
   } catch (error) {
+    console.error('Job processing error:', error)
     file.status = 'failed'
-    file.error = 'Ollama server is not running or returned an error.'
+    file.error = error.message.includes('Ollama API error') 
+      ? `AI Server Error: ${error.message}`
+      : `Document Error: ${error.message}`
     batch.status = 'partial'
     batch.updated_at = nowIso()
   }
@@ -447,21 +389,10 @@ const runQueue = async () => {
   }
 }
 
-const enqueueBatchJobs = ({ batch, ruleTemplateId, ruleText }) => {
+const enqueueBatchJobs = ({ batch, ruleText }) => {
   batch.files.forEach((file) => {
-    if (file.extension !== 'pdf') {
-      file.status = 'failed'
-      file.error = 'Only PDF analysis is supported in v1.'
-      return
-    }
     file.status = 'queued'
-    file.error = null
-    queue.push({
-      batch_id: batch.id,
-      file_id: file.id,
-      rule_template_id: ruleTemplateId,
-      rule_text: ruleText,
-    })
+    queue.push({ batch_id: batch.id, file_id: file.id, rule_text: ruleText })
   })
   batch.status = 'queued'
   batch.updated_at = nowIso()
@@ -472,7 +403,6 @@ setInterval(async () => {
   const deadline = Date.now() - BATCH_TTL_MS
   for (const [batchId, batch] of db.batches.entries()) {
     if (new Date(batch.created_at).getTime() > deadline) continue
-
     for (const file of batch.files) {
       db.fileIndex.delete(file.storage_id)
       await Promise.all([
@@ -480,24 +410,15 @@ setInterval(async () => {
         file.docx_html_path ? fsPromises.rm(file.docx_html_path, { force: true }).catch(() => {}) : Promise.resolve(),
       ])
     }
-
     db.batches.delete(batchId)
   }
 }, 60 * 60 * 1000)
 
-app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, now: nowIso() })
-})
+app.get('/api/health', (_req, res) => res.json({ ok: true, now: nowIso() }))
 
 app.post('/api/review-batches', (_req, res) => {
   const id = randomUUID()
-  const batch = {
-    id,
-    status: 'draft',
-    files: [],
-    created_at: nowIso(),
-    updated_at: nowIso(),
-  }
+  const batch = { id, status: 'draft', files: [], created_at: nowIso(), updated_at: nowIso() }
   db.batches.set(id, batch)
   res.status(201).json(toPublicBatch(batch))
 })
@@ -507,24 +428,13 @@ app.post('/api/review-batches/:batchId/files', upload.array('files', MAX_FILES_P
   if (!batch) return
 
   const uploadedFiles = req.files || []
-  if (uploadedFiles.length === 0) {
-    res.status(400).json({ error: 'No files uploaded.' })
-    return
-  }
-
-  if (batch.files.length + uploadedFiles.length > MAX_FILES_PER_BATCH) {
-    uploadedFiles.forEach((file) => fsPromises.rm(file.path, { force: true }).catch(() => {}))
-    res.status(400).json({ error: `Maximum ${MAX_FILES_PER_BATCH} files per batch.` })
-    return
-  }
-
   const rejected = []
   const accepted = []
 
   for (const file of uploadedFiles) {
     const extension = file.originalname.split('.').pop()?.toLowerCase() || ''
     if (!['pdf', 'docx'].includes(extension)) {
-      rejected.push({ name: file.originalname, reason: 'Only PDF and DOCX files are allowed for review.' })
+      rejected.push({ name: file.originalname, reason: 'Only PDF and DOCX files are allowed.' })
       await fsPromises.rm(file.path, { force: true }).catch(() => {})
       continue
     }
@@ -533,6 +443,7 @@ app.post('/api/review-batches/:batchId/files', upload.array('files', MAX_FILES_P
     let storedExtension = extension
     let originalExtension = null
     let docxHtmlPath = null
+    const storageId = randomUUID()
 
     if (extension === 'docx') {
       try {
@@ -549,7 +460,6 @@ app.post('/api/review-batches/:batchId/files', upload.array('files', MAX_FILES_P
       }
     }
 
-    const storageId = randomUUID()
     const entry = {
       id: randomUUID(),
       storage_id: storageId,
@@ -563,19 +473,11 @@ app.post('/api/review-batches/:batchId/files', upload.array('files', MAX_FILES_P
       findings: [],
       error: null,
       uploaded_at: nowIso(),
-      reviewed_at: null,
     }
     batch.files.push(entry)
-    db.fileIndex.set(storageId, {
-      batch_id: batch.id,
-      file_id: entry.id,
-      absolute_path: absolutePath,
-      docx_html_path: docxHtmlPath || null,
-    })
+    db.fileIndex.set(storageId, { batch_id: batch.id, file_id: entry.id, absolute_path: absolutePath, docx_html_path: docxHtmlPath })
     accepted.push(toPublicFile(entry))
   }
-
-  batch.updated_at = nowIso()
   res.status(201).json({ accepted, rejected, batch: toPublicBatch(batch) })
 })
 
@@ -588,139 +490,31 @@ app.get('/api/review-batches/:batchId/status', (req, res) => {
 app.post('/api/review-batches/:batchId/run', (req, res) => {
   const batch = getBatchOr404(req.params.batchId, res)
   if (!batch) return
-
-  if (batch.files.length === 0) {
-    res.status(400).json({ error: 'Upload at least one PDF before running review.' })
-    return
-  }
-
-  const { rule_template_id: ruleTemplateId, rule_text_override: ruleOverride } = req.body || {}
-  const template = ruleTemplateId ? db.ruleTemplates.get(ruleTemplateId) : null
-  const ruleText = (ruleOverride || template?.rule_text || getDefaultRuleText()).trim()
-
-  if (!ruleText) {
-    res.status(400).json({ error: 'Rule text is required.' })
-    return
-  }
-
-  enqueueBatchJobs({ batch, ruleTemplateId: ruleTemplateId || template?.id || null, ruleText })
+  const { rule_text_override: ruleText } = req.body || {}
+  enqueueBatchJobs({ batch, ruleText })
   res.status(202).json(toPublicBatch(batch))
 })
 
 app.get('/api/review-batches/:batchId/files/:fileId/findings', (req, res) => {
   const batch = getBatchOr404(req.params.batchId, res)
   if (!batch) return
-
-  const file = batch.files.find((entry) => entry.id === req.params.fileId)
-  if (!file) {
-    res.status(404).json({ error: 'File not found in batch.' })
-    return
-  }
-
+  const file = batch.files.find((e) => e.id === req.params.fileId)
+  if (!file) return res.status(404).json({ error: 'File not found.' })
   res.json({ file: toPublicFile(file), findings: file.findings })
-})
-
-app.patch('/api/review-batches/:batchId/files/:fileId/findings/:findingId', (req, res) => {
-  const batch = getBatchOr404(req.params.batchId, res)
-  if (!batch) return
-
-  const file = batch.files.find((entry) => entry.id === req.params.fileId)
-  if (!file) {
-    res.status(404).json({ error: 'File not found in batch.' })
-    return
-  }
-
-  const finding = file.findings.find((entry) => entry.finding_id === req.params.findingId)
-  if (!finding) {
-    res.status(404).json({ error: 'Finding not found.' })
-    return
-  }
-
-  const { status } = req.body || {}
-  if (!['open', 'accepted', 'dismissed', 'needs_follow_up'].includes(status)) {
-    res.status(400).json({ error: 'Invalid finding status.' })
-    return
-  }
-
-  finding.status = status
-  res.json({ finding })
-})
-
-app.get('/api/rule-templates', (_req, res) => {
-  res.json({ templates: [...db.ruleTemplates.values()] })
-})
-
-app.post('/api/rule-templates', (req, res) => {
-  const name = req.body?.name?.trim()
-  const ruleText = req.body?.rule_text?.trim()
-  if (!name || !ruleText) {
-    res.status(400).json({ error: 'name and rule_text are required.' })
-    return
-  }
-
-  const template = {
-    id: randomUUID(),
-    name,
-    rule_text: ruleText,
-    created_at: nowIso(),
-    updated_at: nowIso(),
-  }
-  db.ruleTemplates.set(template.id, template)
-  res.status(201).json(template)
-})
-
-app.patch('/api/rule-templates/:templateId', (req, res) => {
-  const template = db.ruleTemplates.get(req.params.templateId)
-  if (!template) {
-    res.status(404).json({ error: 'Template not found.' })
-    return
-  }
-
-  const name = req.body?.name?.trim()
-  const ruleText = req.body?.rule_text?.trim()
-  if (name) template.name = name
-  if (ruleText) template.rule_text = ruleText
-  template.updated_at = nowIso()
-
-  res.json(template)
 })
 
 app.get('/api/files/:storageId/content', (req, res) => {
   const index = db.fileIndex.get(req.params.storageId)
-  if (!index) {
-    res.status(404).json({ error: 'File content not found.' })
-    return
-  }
-
+  if (!index) return res.status(404).json({ error: 'Not found.' })
   res.setHeader('Content-Type', 'application/pdf')
   fs.createReadStream(index.absolute_path).pipe(res)
 })
 
 app.get('/api/files/:storageId/docx-preview', (req, res) => {
   const index = db.fileIndex.get(req.params.storageId)
-  if (!index || !index.docx_html_path) {
-    res.status(404).json({ error: 'DOCX preview not found.' })
-    return
-  }
-
+  if (!index || !index.docx_html_path) return res.status(404).json({ error: 'Not found.' })
   res.setHeader('Content-Type', 'text/html; charset=utf-8')
   fs.createReadStream(index.docx_html_path).pipe(res)
 })
 
-app.use((error, _req, res, _next) => {
-  void _next
-  if (error instanceof multer.MulterError) {
-    if (error.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({ error: `File is greater than ${MAX_FILE_SIZE_BYTES / (1024 * 1024)}MB.` })
-    }
-    if (error.code === 'LIMIT_FILE_COUNT') {
-      return res.status(400).json({ error: `Maximum ${MAX_FILES_PER_BATCH} files per batch.` })
-    }
-    return res.status(400).json({ error: error.message })
-  }
-  res.status(500).json({ error: error.message || 'Unexpected server error.' })
-})
-
-app.listen(PORT, () => {
-  console.log(`SOW review API running on http://localhost:${PORT}`)
-})
+app.listen(PORT, () => console.log(`Main Server running on http://localhost:${PORT}`))

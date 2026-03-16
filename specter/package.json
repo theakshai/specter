@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "server": "node server/index.js",
+    "server": "node server/main-server.js",
     "dev:full": "bun run server & bun run dev",
     "build": "vite build",
     "lint": "eslint .",

@@ -7,8 +7,6 @@ const API_ROOT = '/api'
 
 function App() {
   const [batch, setBatch] = useState(null)
-  const [templates, setTemplates] = useState([])
-  const [selectedTemplateId, setSelectedTemplateId] = useState('')
   const [ruleText, setRuleText] = useState('')
   const [selectedFileId, setSelectedFileId] = useState(null)
   const [findingsByFile, setFindingsByFile] = useState({})
@@ -17,9 +15,11 @@ function App() {
   const [toasts, setToasts] = useState([])
   const fileInputRef = useRef(null)
   const folderInputRef = useRef(null)
+  const ruleInputRef = useRef(null)
 
   const MAX_FILES_PER_BATCH = 5
   const MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024
+  const MAX_RULE_SIZE_BYTES = 500 * 1024 * 1024
 
   const files = useMemo(() => batch?.files || [], [batch?.files])
   const selectedFile = files.find((file) => file.file_id === selectedFileId) || files[0]
@@ -36,6 +36,39 @@ function App() {
     setTimeout(() => {
       setToasts((current) => current.filter((item) => item.id !== id))
     }, 3500)
+  }
+
+  const onRuleUploadClick = () => {
+    ruleInputRef.current?.click()
+  }
+
+  const onRuleUploadChange = async (event) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    if (file.name !== 'RULE.txt') {
+      addToast('⚠ Only a file named "RULE.txt" is allowed.', 'error')
+      event.target.value = ''
+      return
+    }
+
+    if (file.size > MAX_RULE_SIZE_BYTES) {
+      addToast('⚠ RULE.txt must be 500MB or less.', 'error')
+      event.target.value = ''
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const text = e.target.result
+      setRuleText(text)
+      addToast('✔ RULE.txt loaded successfully.', 'success')
+    }
+    reader.onerror = () => {
+      addToast('✖ Failed to read RULE.txt.', 'error')
+    }
+    reader.readAsText(file)
+    event.target.value = ''
   }
 
   const refreshStatus = useCallback(async (batchId) => {
@@ -67,25 +100,12 @@ function App() {
 
     const bootstrap = async () => {
       try {
-        const [batchResponse, templateResponse] = await Promise.all([
-          fetch(`${API_ROOT}/review-batches`, { method: 'POST' }),
-          fetch(`${API_ROOT}/rule-templates`),
-        ])
+        const response = await fetch(`${API_ROOT}/review-batches`, { method: 'POST' })
+        if (!response.ok) throw new Error('Failed to create review batch.')
+        const payload = await response.json()
 
-        if (!batchResponse.ok) throw new Error('Failed to create review batch.')
-        if (!templateResponse.ok) throw new Error('Failed to load rule templates.')
-
-        const batchPayload = await batchResponse.json()
-        const templatePayload = await templateResponse.json()
-
-        if (ignore) return
-
-        setBatch(batchPayload)
-        setTemplates(templatePayload.templates)
-
-        if (templatePayload.templates.length > 0) {
-          setSelectedTemplateId(templatePayload.templates[0].id)
-          setRuleText(templatePayload.templates[0].rule_text)
+        if (!ignore) {
+          setBatch(payload)
         }
       } catch (error) {
         if (!ignore) addToast(`✖ ${error.message}`, 'error')
@@ -97,14 +117,6 @@ function App() {
       ignore = true
     }
   }, [])
-
-  useEffect(() => {
-    if (!selectedTemplateId) return
-    const template = templates.find((item) => item.id === selectedTemplateId)
-    if (template) {
-      setRuleText(template.rule_text)
-    }
-  }, [selectedTemplateId, templates])
 
   useEffect(() => {
     if (!batch?.batch_id || !selectedFile?.file_id) return
@@ -124,6 +136,12 @@ function App() {
           if (!stillWorking) {
             setIsRunning(false)
           }
+          // Check for newly failed files to show toast
+          payload.files.forEach(file => {
+            if (file.status === 'failed' && file.error) {
+               addToast(`✖ ${file.name}: ${file.error}`, 'error');
+            }
+          });
         })
         .catch((error) => {
           addToast(`✖ ${error.message}`, 'error')
@@ -237,7 +255,6 @@ function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          rule_template_id: selectedTemplateId || null,
           rule_text_override: ruleText,
         }),
       })
@@ -250,43 +267,6 @@ function App() {
       addToast('✔ Review started. Processing files in background.', 'success')
     } catch (error) {
       setIsRunning(false)
-      addToast(`✖ ${error.message}`, 'error')
-    }
-  }
-
-  const onSaveTemplate = async () => {
-    if (!ruleText.trim()) {
-      addToast('⚠ Rule text cannot be empty.', 'error')
-      return
-    }
-
-    try {
-      let response
-      if (selectedTemplateId) {
-        response = await fetch(`${API_ROOT}/rule-templates/${selectedTemplateId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ rule_text: ruleText }),
-        })
-      } else {
-        response = await fetch(`${API_ROOT}/rule-templates`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: `Template ${templates.length + 1}`, rule_text: ruleText }),
-        })
-      }
-
-      const payload = await response.json()
-      if (!response.ok) {
-        throw new Error(payload.error || 'Failed to save template.')
-      }
-
-      const templateResponse = await fetch(`${API_ROOT}/rule-templates`)
-      const templatePayload = await templateResponse.json()
-      setTemplates(templatePayload.templates)
-      setSelectedTemplateId(payload.id)
-      addToast('✔ Rule template saved.', 'success')
-    } catch (error) {
       addToast(`✖ ${error.message}`, 'error')
     }
   }
@@ -358,23 +338,19 @@ function App() {
         multiple
         onChange={onUploadChange}
       />
+      <input
+        ref={ruleInputRef}
+        className="hidden-input"
+        type="file"
+        accept=".txt"
+        onChange={onRuleUploadChange}
+      />
 
       {files.length > 0 && (
         <>
           <nav className="viewer-navbar">
             <div className="rule-controls">
-              <select
-                className="rule-select"
-                value={selectedTemplateId}
-                onChange={(event) => setSelectedTemplateId(event.target.value)}
-              >
-                {templates.map((template) => (
-                  <option key={template.id} value={template.id}>
-                    {template.name}
-                  </option>
-                ))}
-              </select>
-              <Button label="Save Rule" className="scan-button" onClick={onSaveTemplate} />
+              <Button label="Upload Rule" className="scan-button" onClick={onRuleUploadClick} />
               <Button
                 label={isRunning || isBatchWorking ? 'Running...' : 'Run Review'}
                 className="scan-button primary"
